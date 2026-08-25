@@ -1,0 +1,22 @@
+# Kişisel / telifli kitap verileri — paylaşılmaz
+books/
+çeviriler/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Vendored / indirilen ikili araçlar (kullanıcı kendi kurar)
+scripts/docconv/bin/
+scripts/docconv/vendor/
+
+# OS / editör
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
