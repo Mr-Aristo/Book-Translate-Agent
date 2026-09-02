@@ -212,11 +212,55 @@ def render(pdf_path: str, units: list[dict], out_path: str, pages: list[int],
     for orig_pno, us in by_page.items():
         page = doc[remap[orig_pno]]
         tcols = _table_columns(page)  # tablo sutun kutulari (tam hucre genisligi icin)
-        # 1) metni kaldir (grafik/resim korunur), dolgu YOK (renkli diyagram uzerinde beyaz leke olusmasin)
-        for u in us:
-            page.add_redact_annot(fitz.Rect(u["bbox"]), fill=None)
-        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE,
-                              graphics=fitz.PDF_REDACT_LINE_ART_NONE)
+        # 1) metni kaldir. Iki farkli kaynak tipi var:
+        #  (a) VEKTOR/METIN-katmanli sayfa: gorunen metin gercek text; grafik/resim vektor.
+        #      Dolgu YOK + resim/line-art korunur (renkli diyagram uzerinde beyaz leke olusmasin).
+        #  (b) TARANMIS "sandvic" sayfa: tam-sayfa bir raster goruntu + uzerinde gorunmez OCR
+        #      metin katmani. Gorunen Ingilizce GORUNTUNUN icindedir; sadece OCR metnini silmek
+        #      onu kaldirmaz (alttaki goruntu kalir -> ust uste binme). Bu sayfalarda cevrilen
+        #      metin kutularini BEYAZLA kapatip (fill=(1,1,1)) altindaki goruntu pikselini de
+        #      sildirmemiz gerekir; diyagram/kod alanlari redakte edilmedigi icin korunur.
+        if _is_scanned_page(page):
+            for u in us:
+                x0, y0, x1, y1 = u["bbox"]
+                pad = fitz.Rect(x0 - 1.2, y0 - 1.2, x1 + 1.2, y1 + 1.2) & page.rect
+                page.add_redact_annot(pad, fill=(1, 1, 1))
+            page.apply_redactions()  # varsayilan: metni kaldir + kapatilan goruntu pikselini beyazla
+        else:
+            # Vektor/metin-katmanli sayfa. Cogu birim gercek metindir -> saydam redaksiyon
+            # (dolgu YOK, resim/line-art korunur) yeterli. AMA bazi sayfalarda (orn. "This page
+            # intentionally left blank" ara sayfalari) gorunen metin aslinda kucuk bir taranmis
+            # GORUNTU seridi olarak da gomulmustur; sadece gercek metni silmek onu kaldirmaz.
+            # Bu yuzden: bir birim bir raster goruntuyle anlamli olcude ortusuyorsa onu BEYAZLA
+            # kapat (goruntu pikselini de sildir); aksi halde saydam birak (renkli vektor
+            # diyagram uzerinde beyaz leke olusmasin).
+            imgrects = []
+            try:
+                for im in page.get_images(full=True):
+                    imgrects.extend(page.get_image_rects(im[0]))
+            except Exception:
+                imgrects = []
+            def _over_image(bb):
+                r = fitz.Rect(bb); ra = r.get_area()
+                if ra <= 0:
+                    return False
+                for ir in imgrects:
+                    if (r & ir).get_area() >= 0.30 * ra:
+                        return True
+                return False
+            any_white = False
+            for u in us:
+                if _over_image(u["bbox"]):
+                    x0, y0, x1, y1 = u["bbox"]
+                    page.add_redact_annot(fitz.Rect(x0-1.2, y0-1.2, x1+1.2, y1+1.2) & page.rect, fill=(1, 1, 1))
+                    any_white = True
+                else:
+                    page.add_redact_annot(fitz.Rect(u["bbox"]), fill=None)
+            # Beyaz-kapatma varsa goruntu piksellerinin silinmesi gerekir (IMAGE_PIXELS);
+            # yoksa hic resme dokunma (IMAGE_NONE). Vektor diyagramlar her iki durumda korunur.
+            page.apply_redactions(
+                images=(fitz.PDF_REDACT_IMAGE_PIXELS if any_white else fitz.PDF_REDACT_IMAGE_NONE),
+                graphics=fitz.PDF_REDACT_LINE_ART_NONE)
         # asagi tasabilecek gövde bloklari icin: bir sonraki blogun ustune kadar yer ver
         us_sorted = sorted(us, key=lambda u: u["bbox"][1])
         for i, u in enumerate(us_sorted):
@@ -228,13 +272,22 @@ def render(pdf_path: str, units: list[dict], out_path: str, pages: list[int],
                 # sonraki hucreye kadar uzat.
                 cx0, cx1, ctop, cbot = col
                 below = [v["bbox"][1] for v in us_sorted
-                         if v["bbox"][1] > y1 + 1 and v["bbox"][0] < cx1 and v["bbox"][2] > cx0]
+                         if v is not u and v["bbox"][1] > y0 + 4 and v["bbox"][0] < cx1 and v["bbox"][2] > cx0]
                 bottom = (min(below) - 2) if below else min(cbot - 2, y1 + 60)
                 rect = fitz.Rect(cx0 + 3, y0 - 1, cx1 - 3, max(bottom, y1))
             else:
                 bottom = y1
                 if u["kind"] == "body":
-                    below = [v["bbox"][1] for v in us_sorted if v["bbox"][1] > y1 + 1 and v["bbox"][0] < x1 and v["bbox"][2] > x0]
+                    # Asagi dogru uzatma sinirini, GECERLI birimin USTUNDEN asagida baslayan
+                    # (y0 > bu.y0) ve yatayda ortusen herhangi bir birimin ustune kadar kis.
+                    # ">y1" degil ">y0" onemli: taranmis sayfalarda OCR kutulari bazen dikeyde
+                    # ust uste biner (orn. dipnot, govde paragrafinin bbox alt kenarindan biraz
+                    # yukarida baslar); ">y1" kullanmak boyle bir dipnotu "asagidaki blok"
+                    # saymaz, govde metni de onun uzerine tasardi. Bu kapatma tasmayi onler
+                    # (sigmazsa _fit fontu kucultur).
+                    below = [v["bbox"][1] for v in us_sorted
+                             if v is not u and v["bbox"][1] > y0 + 4
+                             and v["bbox"][0] < x1 and v["bbox"][2] > x0]
                     limit = min(below) - 2 if below else y1 + 90
                     bottom = min(max(y1, limit), page.rect.height - 40)
                 rect = fitz.Rect(x0, y0 - 1, x1 + 1, bottom)
@@ -259,6 +312,25 @@ def render(pdf_path: str, units: list[dict], out_path: str, pages: list[int],
         d2.close()
     doc.close()
     return {"out": out_path, "pages": len(pages), "overflow_units": overflow, "previews": previews}
+
+
+def _is_scanned_page(page) -> bool:
+    """Sayfa bir 'taranmis sandvic' mi? (tam-sayfa raster goruntu + gorunmez OCR metni).
+    Boyle sayfalarda gorunen metin GORUNTUNUN icindedir; redaksiyonu beyaz dolguyla yapip
+    altindaki goruntu pikselini de silmemiz gerekir. Sayfa alaninin >=%60'ini kaplayan tek
+    bir raster goruntu varsa taranmis kabul ederiz."""
+    pr = page.rect
+    parea = pr.width * pr.height
+    if parea <= 0:
+        return False
+    try:
+        for im in page.get_images(full=True):
+            for r in page.get_image_rects(im[0]):
+                if (r.width * r.height) >= 0.60 * parea:
+                    return True
+    except Exception:
+        return False
+    return False
 
 
 def _table_columns(page) -> list[tuple]:

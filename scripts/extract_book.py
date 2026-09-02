@@ -145,6 +145,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", help="Kaynak PDF veya EPUB dosyasinin yolu")
     parser.add_argument("--slug", help="Kitap klasoru icin kisa ad (verilmezse dosya adindan uretilir)")
+    parser.add_argument("--title", help="Yayinlanan ceviri dosyasinin basligi (verilmezse kaynak dosya adindan). "
+                        "Can Yucel/yerinde gibi farkli ceviri yollari ayni kitabi ayri baslikla yayinlayabilsin diye.")
     parser.add_argument("--chunk-words", type=int, default=DEFAULT_CHUNK_WORDS)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
                          help="book-translator agent'inin tek calismada cevirecegi chunk sayisi")
@@ -208,7 +210,7 @@ def main() -> int:
 
     total_words = len(raw_text.split())
     save_progress(slug, {
-        "title": source.stem,
+        "title": args.title or source.stem,
         "slug": slug,
         "source_path": str(source),
         "source_format": ext.lstrip("."),

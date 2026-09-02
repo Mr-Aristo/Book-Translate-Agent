@@ -3,10 +3,15 @@ name: translate-book
 description: Bir PDF/EPUB kitabi turkce'ye cevirmeye baslar ya da kaldigi yerden devam ettirir. Kurulum (extraction+chunking) + book-translator agent'ini bir batch icin cagirma + ilerleme raporu.
 ---
 
-Kullanim: `/translate-book "<kaynak dosya yolu>"` (opsiyonel: `--slug <ad>`, `--all` ile kitap bitene kadar art arda batch'ler, `--markdown` ile diyagram-agirlikli PDF'lerde bile markdown yolunu zorla).
+Kullanim: `/translate-book "<kaynak dosya yolu>"` (opsiyonel: `--slug <ad>`, `--all` ile kitap bitene kadar art arda batch'ler, `--markdown` ile diyagram-agirlikli PDF'lerde bile markdown yolunu zorla, `--style canyucel` ile "Can Yucel usulu" ozgur/edebi ceviri).
 
 ## Adimlar
 
+0. **Stil secimi.** `--style canyucel` (veya `--canyucel` / `--turkce-soyle`) verilmisse, bu **`turkce-soyle`
+   skill'ine devret** (ayni `<kaynak yolu>` / `--slug` / `--all` ile) ve buradan cikma. O yol kitabi
+   "Turkce soyleyen" usulu ceviren `canyucel-translator` agent'ini kullanir, sadik moddan AYRI bir
+   `books/<slug>-cy/` klasoru ve `ceviriler/<Baslik> (Turkce Soyleyis).md` ciktisi uretir (cakismaz).
+   `--style canyucel` verilMEDIYSE varsayilan **sadik mod**dur; asagidan devam et.
 1. Argumandan kaynak dosya yolunu al. Yol `.pdf` veya `.epub` degilse kullaniciya sor.
 2. Slug belirle: `--slug` verilmisse onu kullan, yoksa dosya adindan turet (bosluklar `-`'ye, Turkce karakterler ASCII'ye — `scripts/bookutils.py:slugify` mantigi).
 2.5. **Yol secimi (otomatik).** `--markdown` verilMEDIYSE, kaynagi profille:
